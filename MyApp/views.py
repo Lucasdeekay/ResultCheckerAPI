@@ -1,6 +1,8 @@
 # views.py
 import json
 from io import BytesIO
+
+from django.db.models import Max
 from reportlab.pdfgen import canvas
 
 from django.contrib.auth import authenticate, login, logout
@@ -12,8 +14,8 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from MyApp.models import Result, Student
-from MyApp.serializers import ResultSerializer
+from MyApp.models import Result, Student, Grade, Notification
+from MyApp.serializers import ResultSerializer, GradeSerializer, NotificationSerializer
 
 
 @csrf_exempt  # Consider adding CSRF protection if appropriate for your application
@@ -25,11 +27,20 @@ def login_user(request):
             password = data.get('password')
 
             if User.objects.filter(**{"email": email}).exists():
-                username = User.objects.get(email=email).username
-                user = authenticate(username=username, password=password)
+                user = User.objects.get(email=email)
+                student = Student.objects.get(user=user)
+                user = authenticate(username=user.username, password=password)
                 if user is not None:
                     login(request, user)
-                    return JsonResponse({'success': 'Login successful', 'username': user.username}, status=200)
+                    return JsonResponse({
+                        'success': 'Login successful',
+                        'first_name': student.first_name,
+                        'last_name': student.last_name,
+                        'matric_no': student.matric_no,
+                        'email': student.email,
+                        'program': student.programme,
+                        "user_id": user.id},
+                        status=200)
                 else:
                     return JsonResponse({'error': 'Invalid credentials'}, status=401)
             else:
@@ -46,20 +57,20 @@ def register_user(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body.decode('utf-8'))
-            username = data.get('username').strip()
             first_name = data.get('first_name').strip()
             last_name = data.get('last_name').strip()
             email = data.get('email').strip()
-            matric_number = data.get('matric_number').strip()
-            programme = data.get('programme').strip()
+            matric_no = data.get('matric_no').strip()
+            programme = data.get('program').strip()
             level = data.get('level').strip()
             password = data.get('password').strip()
-            if Student.objects.filter(**{"username": username, "email": email}).exists():
+            if User.objects.filter(email=email).exists() or User.objects.filter(username=matric_no).exists():
                 return JsonResponse({'error': "User already exists"}, status=400)
             else:
-                Student.object.create_user(username=username, password=password, first_name=first_name,
-                                           last_name=last_name, email=email, matric_number=matric_number,
-                                           programme=programme, level=level)
+                user = User.objects.create_user(username=matric_no, email=email, password=password)
+                Student.objects.create(user=user, first_name=first_name,
+                                      last_name=last_name, email=email, matric_no=matric_no,
+                                      programme=programme, level=level)
                 return JsonResponse({'success': "Registration successful"}, status=200)
         except Exception as e:
             return JsonResponse({'error': f'Internal server error: {str(e)}'}, status=500)
@@ -126,6 +137,13 @@ def logout_user(request):
 
 
 @api_view(['GET'])
+def get_notifications(request):
+    notifications = Notification.objects.all()
+    serializer = NotificationSerializer(notifications, many=True)
+    return Response({'notifications': serializer.data}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
 def get_current_semester_results(request, matric_no):
     """
   API view function to retrieve all results for the current user for the most current session and semester.
@@ -137,19 +155,42 @@ def get_current_semester_results(request, matric_no):
         return Response({'error': 'Student does not exist'})
 
     # Get the most current session (assuming sessions are represented by strings)
-    current_session = Result.objects.latest('session').session
+    result_latest_session = Result.objects.filter(student=user).aggregate(Max('session'))['session__max']
+    grade_latest_session = Grade.objects.filter(student=user).aggregate(Max('session'))['session__max']
 
     # Get all results for the user in the current session
-    user_results = Result.objects.filter(student=user, session=current_session)
+    user_results = Result.objects.filter(student=user, session=result_latest_session)
+    user_grade = Grade.objects.filter(student=user, session=grade_latest_session)
 
     # Filter results further to include only the most current semester
     # (assuming semesters are represented by strings)
-    most_recent_semester = Result.objects.latest('semester').semester
-    current_semester_results = user_results.filter(semester=most_recent_semester)
+    result_latest_semester = Result.objects.order_by('-semester').first().semester
+    grade_latest_semester = Grade.objects.order_by('-semester').first().semester
+
+    current_semester_results = user_results.filter(semester=result_latest_semester)
+    current_semester_grade = user_grade.get(semester=grade_latest_semester)
 
     # Serialize the results data
-    serializer = ResultSerializer(current_semester_results, many=True)
-    return Response(serializer.data)
+    result_serializer = ResultSerializer(current_semester_results, many=True)
+    # grade_serializer = GradeSerializer(current_semester_grade, many=True)
+
+    all_results = []
+
+    for result in current_semester_results:
+        all_results.append(
+            {
+                'course_name': result.course.course_name,
+                'course_code': result.course.course_code,
+                'score': result.score,
+            }
+        )
+
+    return JsonResponse({
+        'results': all_results,
+        'grade': current_semester_grade.gpa,
+        'session': result_latest_session,
+        'semester': result_latest_semester
+    }, status=200, safe=False)
 
 
 @api_view(['POST'])
@@ -158,19 +199,22 @@ def send_feedback(request):
   API view function to receive and send feedback/complaints via email.
   """
     if request.method == 'POST':
-        # Extract data from request body
-        name = request.data.get('name')
-        email = request.data.get('email')
-        message = request.data.get('message')
-        subject = f"Feedback/Complaint from {name} ({email})"
+        data = json.loads(request.body.decode('utf-8'))
+        user_id = data.get('user_id')
+        subject = data.get('subject')
+        message = data.get('content')
+
+        user = User.objects.get(id=int(user_id))
+        student = Student.objects.get(user=user)
+        subject = f"Feedback/Complaint from {student.matric_no}: {subject}"
 
         # Validate data (optional)
-        if not name or not email or not message:
+        if not user_id or not subject or not message:
             return Response({'error': 'Missing required fields'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Send email
         try:
-            send_mail(subject, message, email, ['support@yourdomain.com'])  # Replace with your support email
+            send_mail(subject, message, 'support@yourdomain.com', [user.email])  # Replace with your support email
             return Response({'success': 'Feedback sent successfully!'})
         except Exception as e:
             return Response({'error': f'An error occurred: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

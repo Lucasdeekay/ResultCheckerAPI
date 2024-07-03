@@ -1,9 +1,10 @@
 from django.db import models
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import User
 
 
 # Create your models here.
-class Student(AbstractUser):
+class Student(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
     last_name = models.CharField(max_length=250)
     first_name = models.CharField(max_length=250)
     matric_no = models.CharField(max_length=12)
@@ -44,8 +45,8 @@ class Result(models.Model):
     student = models.ForeignKey(Student, on_delete=models.CASCADE)
     course = models.ForeignKey(Course, on_delete=models.CASCADE)
     semester = models.CharField(max_length=10, choices=[
-        ('alpha', 'Alpha'),
-        ('omega', 'Omega'),
+        ('Alpha', 1),
+        ('Omega', 2),
     ])
     session = models.CharField(max_length=10, choices=[
         ('2023/2024', '2023/2024'),
@@ -57,10 +58,10 @@ class Result(models.Model):
 
     class Meta:
         unique_together = (
-        ('student', 'course', 'semester'),)  # Ensures a student can only have one result for a course in a semester
+            ('student', 'course', 'semester'),)  # Ensures a student can only have one result for a course in a semester
 
     def __str__(self):
-        return f"{self.student.matric_number} - {self.course.course_code} ({self.semester} {self.session}) - {self.score}"
+        return f"{self.student.matric_no} - {self.course.course_code} ({self.semester} {self.session}) - {self.score}"
 
 
 class Notification(models.Model):
@@ -70,3 +71,22 @@ class Notification(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class Grade(models.Model):
+    student = models.ForeignKey(Student, on_delete=models.CASCADE)
+    semester = models.CharField(max_length=10, choices=[
+        ('Alpha', 1),
+        ('Omega', 2),
+    ])
+    session = models.CharField(max_length=10, choices=[
+        ('2023/2024', '2023/2024'),
+        ('2024/2025', '2024/2025'),
+        ('2025/2026', '2025/2026'),
+        ('2026/2027', '2026/2027'),
+    ])
+    gpa = models.DecimalField(max_digits=3, decimal_places=2)
+
+
+    def __str__(self):
+        return f"{self.student.matric_no}"

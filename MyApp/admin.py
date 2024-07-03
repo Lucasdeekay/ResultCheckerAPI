@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Student, Course, Result, Notification
+from .models import Student, Course, Result, Notification, Grade
 
 
 # Register Student Model
@@ -19,7 +19,7 @@ class CourseAdmin(admin.ModelAdmin):
 # Register Result Model
 @admin.register(Result)
 class ResultAdmin(admin.ModelAdmin):
-    list_display = ('student_matric_no', 'student_name', 'course_code', 'course_name', 'semester', 'session', 'score')
+    list_display = ('student', 'course', 'semester', 'session', 'score')
     search_fields = (
         'student__matric_no', 'student__last_name', 'course__course_code', 'course__course_name', 'semester', 'session')
 
@@ -35,3 +35,9 @@ class ResultAdmin(admin.ModelAdmin):
 class NotificationAdmin(admin.ModelAdmin):
     list_display = ('title', 'content', 'date')
     search_fields = ('title', 'content')
+
+
+@admin.register(Grade)
+class GradeAdmin(admin.ModelAdmin):
+    list_display = ('student', 'semester', 'session', 'gpa',)
+    search_fields = ('student__matric_no', 'semester', 'session',)

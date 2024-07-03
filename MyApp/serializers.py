@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Student, Course, Result, Notification
+from .models import Student, Course, Result, Notification, Grade
 
 
 class StudentSerializer(serializers.ModelSerializer):
@@ -23,4 +23,10 @@ class ResultSerializer(serializers.ModelSerializer):
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
+        fields = '__all__'
+
+
+class GradeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Grade
         fields = '__all__'
